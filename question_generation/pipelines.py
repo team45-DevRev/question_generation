@@ -1,6 +1,8 @@
 import itertools
 import logging
 from typing import Optional, Dict, Union
+import spacy
+import networkx as nx
 
 from nltk import sent_tokenize
 
@@ -13,6 +15,51 @@ from transformers import(
 )
 
 logger = logging.getLogger(__name__)
+
+def ner_reranker(text):
+  # Process the text with NER
+  doc = nlp(text)
+  
+  # Build a graph of named entities
+  G = nx.Graph()
+  for ent in doc.ents:
+        G.add_node(ent.text)
+
+  for token in doc:
+      if token.ent_type_ != "":
+          for child in token.children:
+              if child.ent_type_ != "":
+                  G.add_edge(token.text, child.text)
+
+  # Compute PageRank centrality scores for each named entity
+  pagerank_scores = nx.pagerank(G)
+
+  # Compute entity frequency scores
+  reranked_sentences = []
+  entity_frequency = {}
+  for ent in doc.ents:
+      if ent.text in entity_frequency:
+          entity_frequency[ent.text] += 1
+      else:
+          entity_frequency[ent.text] = 1
+
+  # Rank entities based on centrality and frequency
+  ranked_entities = [(entity, pagerank_scores[entity] * entity_frequency[entity]) for entity in entity_frequency]
+  ranked_entities.sort(key=lambda x: x[1], reverse=True)
+
+  # Get the sentences that contain the ranked entities
+  ranked_entity_sentences = []
+  for ent, score in ranked_entities:
+      for sent in doc.sents:
+          if ent in sent.text:
+              ranked_entity_sentences.append((sent.start, sent.text))
+
+  for start, sentence in ranked_entity_sentences:
+      reranked_sentences.append(sentence)
+  print(reranked_sentences)
+  
+  return reranked_sentences
+
 
 class QGPipeline:
     """Poor man's QG pipeline"""
